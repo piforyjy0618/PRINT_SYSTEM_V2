@@ -1,7 +1,9 @@
 #include "main_board.h"
 #include "HeadBoard/head_board.h"
+#include "BoardCommunicate/board_communicate.h"
+#include "spdlog/spdlog.h"
 
-MainBoard::MainBoard(const char *ip)
+MainBoard::MainBoard(const char *ip) : m_ip(ip)
 {
 }
 
@@ -9,62 +11,69 @@ MainBoard::~MainBoard()
 {
 }
 
-bool MainBoard::SendCommand(NetChannel channel)
+bool MainBoard::OpenConnect(NetChannel channel, int port)
+{
+    std::string channelStr;
+    switch (channel)
+    {
+        case NetChannel::UDP:
+            channelStr = "UDP";
+            break;
+        case NetChannel::TCP:
+            channelStr = "TCP";
+            break;
+        default:
+            spdlog::warn("Unsupported channel type.");
+            return false;
+    }
+    spdlog::info("{0:s} Connect to {1:s}. IP: {2:s}, port: {3:d}", __FUNCTION__, channelStr, m_ip, port);
+    // 关闭之前的连接
+    if (m_boardCommunicate)
+    {
+        m_boardCommunicate->CloseConnect();
+        m_boardCommunicate = nullptr;
+    }
+    // 创建并绑定接收函数
+    m_boardCommunicate = BoardCommunicate::Create(channel);
+    m_boardCommunicate->DataReceived.connect(std::bind(&MainBoard::DataReceivedFromBoard, this, std::placeholders::_1));
+    if(!m_boardCommunicate->OpenConnect(m_ip, port))
+    {
+        spdlog::warn("{0:s}: Failed to Open Connect.", __FUNCTION__);
+        return false;
+    }
+    return true;
+}
+
+void MainBoard::CloseConnect()
+{
+    if (m_boardCommunicate)
+    {
+        m_boardCommunicate->CloseConnect();
+        m_boardCommunicate = nullptr;
+    }
+    spdlog::info("{0:s}", __FUNCTION__);
+}
+
+bool MainBoard::IsConnected() const
+{
+    return m_boardCommunicate->IsConnected();
+}
+
+bool MainBoard::SendCommand()
 {
     return true;
 }
 
-bool MainBoard::SendData(NetChannel channel)
+bool MainBoard::SendData()
 {
     return false;
 }
 
-bool MainBoard::ConnectTCP(int port)
+void MainBoard::SetMainBoardEventCallback(SystemEvent cb, void *pUserData)
 {
-    std::lock_guard<std::mutex> lock(m_mbMutex);
-    if (m_isTcpConnected)
-        return true;
-    // 伪代码：发起 TCP 连接
-    // m_tcpSocketFd = socket(AF_INET, SOCK_STREAM, 0);
-    // connect(...);
-    m_tcpPort = port;
-    m_isTcpConnected = true;
-    //    std::cout << "[Mainboard " << m_ip << "] TCP Connected on port " << port << "\n";
-    return true;
+    m_eventCB = cb;
+    m_pUserData = pUserData;
 }
-
-void MainBoard::DisconnectTCP()
-{
-    std::lock_guard<std::mutex> lock(m_mbMutex);
-    m_isTcpConnected = false;
-    // close(m_tcpSocketFd);
-    //    std::cout << "[Mainboard " << m_ip << "] TCP Disconnected.\n";
-}
-
-bool MainBoard::IsTCPConnected() const
-{
-    return m_isTcpConnected;
-}
-
-bool MainBoard::ConnectUDP(int port)
-{
-    std::lock_guard<std::mutex> lock(m_mbMutex);
-    if (m_isUdpConnected)
-        return true;
-    // 伪代码：绑定 UDP 端口
-    m_udpPort = port;
-    m_isUdpConnected = true;
-    //std::cout << "[Mainboard " << m_ip << "] UDP Ready on port " << port << "\n";
-    return true;
-}
-
-void MainBoard::DisconnectUDP()
-{
-    std::lock_guard<std::mutex> lock(m_mbMutex);
-    m_isUdpConnected = false;
-}
-
-bool MainBoard::IsUDPConnected() const { return m_isUdpConnected; }
 
 const char *MainBoard::GetIPAddress() const
 {
@@ -77,7 +86,7 @@ const char *MainBoard::GetMainBoardSerial() const
 }
 
 // --- 设备层级实现 ---
-size_t MainBoard::GetHeadboardCount() const
+int MainBoard::GetHeadboardCount() const
 {
     std::lock_guard<std::mutex> lock(m_mbMutex);
     return m_headBoards.size();
@@ -101,34 +110,13 @@ IHeadboard *MainBoard::AddHeadboard(const char *serial)
     return m_headBoards.back().get();
 }
 
+void MainBoard::DataReceivedFromBoard(std::string recvData)
+{
+}
+
 // --- 内部通信实现 ---
 bool MainBoard::SendHardwareCommand(uint16_t cmdId, const uint8_t *payload, int length, NetChannel channel)
 {
     std::lock_guard<std::mutex> lock(m_mbMutex);
-
-    bool useTCP = false;
-    if (channel == NetChannel::TCP && m_isTcpConnected)
-        useTCP = true;
-    else if (channel == NetChannel::UDP && m_isUdpConnected)
-        useTCP = false;
-    else if (channel == NetChannel::Auto)
-    {
-        // 自动模式：TCP优先，否则UDP
-        if (m_isTcpConnected)
-            useTCP = true;
-        else if (m_isUdpConnected)
-            useTCP = false;
-        else
-            return false; // 都没有连接
-    }
-    else
-    {
-        return false; // 请求的通道未连接
-    }
-
-    // std::cout << "[Network Thread] Sending via " << (useTCP ? "TCP" : "UDP")
-    //           << " to " << m_ip << " | CMD: 0x" << std::hex << cmdId << std::endl;
-
-    // if (useTCP) send(m_tcpSocketFd, ...); else sendto(m_udpSocketFd, ...);
-    return true;
+    return false;
 }

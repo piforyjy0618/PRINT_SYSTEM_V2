@@ -3,6 +3,15 @@
 
 #include "SdkExport.h"
 
+enum class SystemEventLevel
+{
+    Info,
+    Warning,
+    Error
+};
+
+typedef void (*SystemEvent)(SystemEventLevel level, const char *source, const char *msg, void *pUserData);
+
 enum class PrintheadModel
 {
     Unknown = 0,
@@ -65,32 +74,31 @@ class IMainBoard
 public:
     virtual ~IMainBoard() = default;
 
-    /** TCP 连接 */
-    // 连接TCP端口，返回是否成功
-    virtual bool ConnectTCP(int port) = 0;
-    // 断开TCP连接
-    virtual void DisconnectTCP() = 0;
-    // 判断TCP是否已连接
-    virtual bool IsTCPConnected() const = 0;
-
-    /** UDP 连接*/
-    // 连接UDP端口，返回是否成功
-    virtual bool ConnectUDP(int port) = 0;
-    // 断开UDP连接
-    virtual void DisconnectUDP() = 0;
-    // 判断UDP是否已连接
-    virtual bool IsUDPConnected() const = 0;
-
+    /**------连接------ */
+    enum class NetChannel
+    {
+        TCP,
+        UDP,
+    };
+    // 打开主板连接
+    virtual bool OpenConnect(NetChannel channel, int port) = 0;
+    // 断开主板连接
+    virtual void CloseConnect() = 0;
+    // 获取连接状态
+    virtual bool IsConnected() const = 0;
     // 获取主板IP地址
     virtual const char *GetIPAddress() const = 0;
+
     // 获取主板序列号
     virtual const char *GetMainBoardSerial() const = 0;
     // 获取头板数量
-    virtual size_t GetHeadboardCount() const = 0;
+    virtual int GetHeadboardCount() const = 0;
     // 获取头板指针
     virtual IHeadboard *GetHeadboard(int index) const = 0;
     // 添加头板
     virtual IHeadboard *AddHeadboard(const char *serial) = 0;
+    // 主板事件回调接口
+    virtual void SetMainBoardEventCallback(SystemEvent cb, void *pUserData = nullptr) = 0;
 };
 
 class IPrintSystem
@@ -105,13 +113,13 @@ public:
     // 移除主板
     virtual bool RemoveMainBoard(int index) = 0;
     // 获取主板数量
-    virtual size_t GetMainBoardCount() const = 0;
+    virtual int GetMainBoardCount() const = 0;
     // 获取主板指针
     virtual IMainBoard *GetMainBoard(int index) const = 0;
     // 系统释放
     virtual void Release() = 0;
-    // 注册系统级回调函数（用于接收底层主动上报的错误、状态等）
-    // virtual void SetEventCallback(SystemEventCallback cb) = 0;
+    // 系统事件回调接口
+    virtual void SetSystemEventCallback(SystemEvent cb, void *pUserData = nullptr) = 0;
 };
 
 // 导出系统创建函数

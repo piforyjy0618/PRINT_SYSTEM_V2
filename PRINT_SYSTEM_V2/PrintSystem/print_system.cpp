@@ -59,7 +59,7 @@ IMainBoard *PrintSystem::AddMainBoard(const char *ip)
 bool PrintSystem::RemoveMainBoard(int index)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    if (index >= 0 && index < static_cast<int>(m_mainBoards.size()))
+    if (index >= 0 && index < m_mainBoards.size())
     {
         m_mainBoards.erase(m_mainBoards.begin() + index);
         return true;
@@ -67,17 +67,16 @@ bool PrintSystem::RemoveMainBoard(int index)
     return false;
 }
 
-size_t PrintSystem::GetMainBoardCount() const
+int PrintSystem::GetMainBoardCount() const
 {
-    // 【关键】读取操作也需要加锁
     std::lock_guard<std::mutex> lock(m_mutex);
-    return m_mainBoards.size();
+    return (int)m_mainBoards.size();
 }
 
 IMainBoard *PrintSystem::GetMainBoard(int index) const
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    if (index >= 0 && index < static_cast<int>(m_mainBoards.size()))
+    if (index >= 0 && index < m_mainBoards.size())
     {
         return m_mainBoards[index].get();
     }
@@ -86,5 +85,16 @@ IMainBoard *PrintSystem::GetMainBoard(int index) const
 
 void PrintSystem::Release()
 {
-    delete this;
+    delete this; // 自我销毁
+}
+
+void PrintSystem::SetSystemEventCallback(SystemEvent cb, void *pUserData)
+{
+    m_eventCB = cb;
+    m_pUserData = pUserData;
+}
+
+extern "C" SDK_API IPrintSystem* CreatePrintSystem() 
+{
+    return new (std::nothrow) PrintSystem();
 }

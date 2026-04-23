@@ -16,6 +16,10 @@ class PrintSystem : public IPrintSystem
     std::thread m_networkThread;       // 后台网络监听线程
     std::atomic<bool> m_isRunning;     // 控制线程退出的标志位
 
+    /** 回调相关 */
+    SystemEvent m_eventCB = nullptr;
+    void *m_pUserData = nullptr;
+
     // 后台网络线程的执行函数
     void NetworkWorkerThread();
 public:
@@ -29,11 +33,13 @@ public:
     // 移除主板
     bool RemoveMainBoard(int index) override;
     // 获取主板数量
-    size_t GetMainBoardCount() const override;
+    int GetMainBoardCount() const override;
     // 获取主板指针
     IMainBoard *GetMainBoard(int index) const override;
     // 系统释放
     void Release() override;
+    // 系统事件回调接口
+    void SetSystemEventCallback(SystemEvent cb, void *pUserData = nullptr) override;
 };
 
 #endif // PRINTSYSTEM_H

@@ -72,12 +72,7 @@ Thumbs.db
 .vscode
 build*
 pack*
-CodeTest
-PrintSystem/Test_Image
-PrintSystem/Firmware_Update/ssh/DLL_MinGW
-PrintSystem/Firmware_Update/ssh/DLL_MSVC
-PrintSystem/Firmware_Update/ssh
-Kernel
 .dll
 .a
 .lib
+PRINT_SYSTEM_V2/PrintSystem/3rdparty
