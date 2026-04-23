@@ -1,7 +1,8 @@
 #ifndef ICOMMANDSENDER_H
 #define ICOMMANDSENDER_H
 
-enum class NetChannel {
+enum class NetChannel
+{
     Auto, // 自动选择 (如优先 TCP，无 TCP 则选 UDP)
     TCP,
     UDP

@@ -1,5 +1,5 @@
-#include "printsystem.h"
-#include "MainBoard/mainboard.h"
+#include "print_system.h"
+#include "MainBoard/main_board.h"
 
 PrintSystem::PrintSystem() : m_isRunning(false)
 {
@@ -9,20 +9,22 @@ PrintSystem::~PrintSystem()
 {
     // 析构时必须安全地停止后台线程
     m_isRunning = false;
-    if (m_networkThread.joinable()) {
+    if (m_networkThread.joinable())
+    {
         m_networkThread.join();
     }
 }
 
-bool PrintSystem::Initialize(const char* configPath)
+bool PrintSystem::Initialize(const char *configPath)
 {
     // 1. 初始化通信层 (如打开 USB)
     // m_usbHandle = OpenUSBDevice(...);
 
     // 2. 扫描并创建头板，将 this（此时身份是 ICommandSender*）传给头板
-    m_mainboards.push_back(std::make_unique<MainBoard>("PCC-001", this));
+    m_mainBoards.push_back(std::make_unique<MainBoard>("PCC-001"));
 
-    if (m_isRunning) return true;
+    if (m_isRunning)
+        return true;
 
     // 启动后台网络监听线程
     m_isRunning = true;
@@ -30,8 +32,10 @@ bool PrintSystem::Initialize(const char* configPath)
     return true;
 }
 
-void PrintSystem::NetworkWorkerThread() {
-    while (m_isRunning) {
+void PrintSystem::NetworkWorkerThread()
+{
+    while (m_isRunning)
+    {
         // 1. 使用 select / epoll / IOCP 等监听所有 Socket 的数据到来
         // 2. 解析接收到的底层 TCP/UDP 数据包
         // 3. 如果收到数据包：
@@ -45,35 +49,37 @@ void PrintSystem::NetworkWorkerThread() {
     }
 }
 
-IMainboard* PrintSystem::AddMainboard(const char* ip)
+IMainBoard *PrintSystem::AddMainBoard(const char *ip)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_mainboards.push_back(std::make_unique<MainBoard>(ip));
-    return m_mainboards.back().get();
+    m_mainBoards.push_back(std::make_unique<MainBoard>(ip));
+    return m_mainBoards.back().get();
 }
 
-bool PrintSystem::RemoveMainboard(int index)
+bool PrintSystem::RemoveMainBoard(int index)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    if (index >= 0 && index < static_cast<int>(m_mainboards.size())) {
-        m_mainboards.erase(m_mainboards.begin() + index);
+    if (index >= 0 && index < static_cast<int>(m_mainBoards.size()))
+    {
+        m_mainBoards.erase(m_mainBoards.begin() + index);
         return true;
     }
     return false;
 }
 
-int PrintSystem::GetMainboardCount() const
+size_t PrintSystem::GetMainBoardCount() const
 {
     // 【关键】读取操作也需要加锁
     std::lock_guard<std::mutex> lock(m_mutex);
-    return (int)m_mainboards.size();
+    return m_mainBoards.size();
 }
 
-IMainboard* PrintSystem::GetMainboard(int index) const
+IMainBoard *PrintSystem::GetMainBoard(int index) const
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    if (index >= 0 && index < static_cast<int>(m_mainboards.size())) {
-        return m_mainboards[index].get();
+    if (index >= 0 && index < static_cast<int>(m_mainBoards.size()))
+    {
+        return m_mainBoards[index].get();
     }
     return nullptr;
 }

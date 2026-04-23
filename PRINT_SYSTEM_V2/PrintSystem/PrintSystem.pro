@@ -5,28 +5,31 @@ DEFINES += PRINTSYSTEM_LIBRARY
 
 CONFIG += c++17
 
+msvc{
+    QMAKE_CFLAGS +=/utf-8
+    QMAKE_CXXFLAGS +=/utf-8
+}
+
 # You can make your code fail to compile if it uses deprecated APIs.
 # In order to do so, uncomment the following line.
 #DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
 
 SOURCES += \
-    HeadBoard/headboard.cpp \
-    MainBoard/icommandsender.cpp \
-    MainBoard/mainboard.cpp \
+    HeadBoard/head_board.cpp \
+    MainBoard/main_board.cpp \
     PrintHead/HeadTypes/qs256_head.cpp \
-    PrintHead/printhead.cpp \
-    printsystem.cpp
+    PrintHead/print_head.cpp \
+    print_system.cpp
 
 HEADERS += \
-    HeadBoard/headboard.h \
-    MainBoard/icommandsender.h \
-    MainBoard/mainboard.h \
+    HeadBoard/head_board.h \
+    MainBoard/i_command_sender.h \
+    MainBoard/main_board.h \
     PrintHead/HeadTypes/qs256_head.h \
-    PrintHead/printhead.h \
+    PrintHead/print_head.h \
     PrintSystemSDK.h \
-    PrintSystem_global.h \
     SdkExport.h \
-    printsystem.h
+    print_system.h
 
 # Default rules for deployment.
 unix {
