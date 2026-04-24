@@ -69,6 +69,12 @@ public:
     virtual bool RemovePrintheadByPtr(IPrinthead *head) = 0;
 };
 
+enum class NetChannel
+{
+    TCP,
+    UDP,
+};
+
 class IMainBoard
 {
 public:
@@ -76,13 +82,17 @@ public:
 
     /**------连接------ */
     // 打开主板连接
-    virtual bool OpenConnect(int port) = 0;
+    virtual bool OpenConnect() = 0;
     // 断开主板连接
     virtual void CloseConnect() = 0;
     // 获取连接状态
     virtual bool IsConnected() const = 0;
     // 获取主板IP地址
     virtual const char *GetIPAddress() const = 0;
+    // 获取主板端口号
+    virtual int GetPort() const = 0;
+    // 获取主板通信方式
+    virtual NetChannel GetNetChannel() const = 0;
 
     // 获取主板序列号
     virtual const char *GetMainBoardSerial() const = 0;
@@ -96,12 +106,6 @@ public:
     virtual void SetMainBoardEventCallback(SystemEvent cb, void *pUserData = nullptr) = 0;
 };
 
-enum class NetChannel
-{
-    TCP,
-    UDP,
-};
-
 class IPrintSystem
 {
 public:
@@ -109,8 +113,10 @@ public:
 
     // 初始化系统，传入配置文件路径
     virtual bool Initialize(const char *configPath = nullptr) = 0;
+    // 保存当前配置
+    virtual bool SaveConfig(const char *configPath) = 0;
     // 添加主板到系统
-    virtual IMainBoard *AddMainBoard(NetChannel netChannel, const char *ip) = 0;
+    virtual IMainBoard *AddMainBoard(NetChannel netChannel, const char *ip, int port) = 0;
     // 移除主板
     virtual bool RemoveMainBoard(int index) = 0;
     // 获取主板数量

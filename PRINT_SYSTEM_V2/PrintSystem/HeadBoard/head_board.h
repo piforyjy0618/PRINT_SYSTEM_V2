@@ -3,6 +3,7 @@
 
 #include "PrintSystemSDK.h"
 #include "MainBoard/i_command_sender.h"
+#include "ConfigManager/system_config.h"
 #include <vector>
 #include <memory>
 
@@ -22,6 +23,9 @@ public:
     IPrinthead *AddPrinthead(PrintheadModel model, const char *configParams) override;
     bool RemovePrinthead(int index) override;
     bool RemovePrintheadByPtr(IPrinthead *head) override;
+
+    // 获取当前的头板配置
+    HeadBoardConfig GetCurrentConfig() const;
 };
 
 #endif // HEADBOARD_H

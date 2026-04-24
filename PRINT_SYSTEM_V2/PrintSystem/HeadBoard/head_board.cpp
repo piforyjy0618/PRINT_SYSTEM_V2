@@ -75,3 +75,11 @@ bool HeadBoard::RemovePrintheadByPtr(IPrinthead *head)
     }
     return false;
 }
+
+HeadBoardConfig HeadBoard::GetCurrentConfig() const
+{
+    HeadBoardConfig cfg;
+    cfg.serial = m_serial;
+    
+    return cfg;
+}

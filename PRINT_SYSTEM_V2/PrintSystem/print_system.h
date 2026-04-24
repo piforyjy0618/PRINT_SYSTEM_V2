@@ -22,8 +22,10 @@ public:
 
     // 初始化系统，传入配置文件路径
     bool Initialize(const char *configPath = nullptr) override;
+    // 保存当前配置
+    bool SaveConfig(const char *configPath) override;
     // 添加主板到系统
-    IMainBoard *AddMainBoard(NetChannel netChannel, const char *ip) override;
+    IMainBoard *AddMainBoard(NetChannel netChannel, const char *ip, int port) override;
     // 移除主板
     bool RemoveMainBoard(int index) override;
     // 获取主板数量

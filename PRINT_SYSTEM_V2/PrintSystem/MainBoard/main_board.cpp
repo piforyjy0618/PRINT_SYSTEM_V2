@@ -3,8 +3,9 @@
 #include "BoardCommunicate/board_communicate.h"
 #include "spdlog/spdlog.h"
 
-MainBoard::MainBoard(NetChannel netChannel, const char *ip) : m_netChannel(netChannel),
-m_ip(ip)
+MainBoard::MainBoard(NetChannel netChannel, const char *ip, int port) : m_netChannel(netChannel),
+                                                              m_ip(ip),
+                                                              m_port(port)
 {
     m_ioContext = std::make_shared<boost::asio::io_context>();
     // 使用 work_guard 保证 io_context 在没有任务时也不会退出 run()
@@ -31,9 +32,9 @@ MainBoard::~MainBoard()
     }
 }
 
-bool MainBoard::OpenConnect(int port)
+bool MainBoard::OpenConnect()
 {
-    spdlog::info("{0:s} Connect to Board. IP: {2:s}, port: {3:d}", __FUNCTION__, m_ip, port);
+    spdlog::info("{0:s} Connect to Board. IP: {2:s}, port: {3:d}", __FUNCTION__, m_ip, m_port);
     // 关闭之前的连接
     if (m_boardCommunicate)
     {
@@ -45,7 +46,7 @@ bool MainBoard::OpenConnect(int port)
     // 绑定接收函数
     m_boardCommunicate->DataReceived.connect(std::bind(&MainBoard::DataReceivedFromBoard, this, std::placeholders::_1));
 
-    if(!m_boardCommunicate->OpenConnect(m_ip, port))
+    if(!m_boardCommunicate->OpenConnect(m_ip, m_port))
     {
         spdlog::warn("{0:s}: Failed to Open Connect.", __FUNCTION__);
         return false;
@@ -65,7 +66,30 @@ void MainBoard::CloseConnect()
 
 bool MainBoard::IsConnected() const
 {
+    if (!m_boardCommunicate)
+    {
+        return false;
+    }
     return m_boardCommunicate->IsConnected();
+}
+
+MainBoardConfig MainBoard::GetCurrentConfig() const
+{
+    MainBoardConfig cfg;
+    cfg.ip = m_ip;
+    cfg.port = m_port;
+    cfg.channel = m_netChannel;
+    for (const auto &hb : m_headBoards)
+    {
+        auto hbPtr = dynamic_cast<HeadBoard *>(hb.get());
+        if (!hbPtr)
+        {
+            continue;
+        }
+        HeadBoardConfig hbCfg = hbPtr->GetCurrentConfig();
+        cfg.headBoards.push_back(hbCfg);
+    }
+    return cfg;
 }
 
 bool MainBoard::SendCommand(const std::string &cmd, const std::string &data)
@@ -77,11 +101,6 @@ void MainBoard::SetMainBoardEventCallback(SystemEvent cb, void *pUserData)
 {
     m_eventCB = cb;
     m_pUserData = pUserData;
-}
-
-const char *MainBoard::GetIPAddress() const
-{
-    return m_ip.c_str();
 }
 
 const char *MainBoard::GetMainBoardSerial() const

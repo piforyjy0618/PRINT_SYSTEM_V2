@@ -27,6 +27,7 @@ INCLUDEPATH += C:/boost_1_90_0
 #DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
 
 SOURCES += \
+    ConfigManager/config_manager.cpp \
     HeadBoard/head_board.cpp \
     MainBoard/BoardCommunicate/board_communicate.cpp \
     MainBoard/BoardCommunicate/tcp/tcp_async_client.cpp \
@@ -37,6 +38,8 @@ SOURCES += \
     print_system.cpp
 
 HEADERS += \
+    ConfigManager/config_manager.h \
+    ConfigManager/system_config.h \
     HeadBoard/head_board.h \
     MainBoard/BoardCommunicate/board_communicate.h \
     MainBoard/BoardCommunicate/tcp/tcp_async_client.h \
