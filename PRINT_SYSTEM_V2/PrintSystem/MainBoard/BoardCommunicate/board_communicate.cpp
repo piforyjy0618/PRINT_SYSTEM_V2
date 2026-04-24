@@ -2,14 +2,14 @@
 #include "udp/udp_async_client.h"
 #include "tcp/tcp_async_client.h"
 
-std::shared_ptr<BoardCommunicate> BoardCommunicate::Create(IMainBoard::NetChannel channel, int localPort)
+std::shared_ptr<BoardCommunicate> BoardCommunicate::Create(NetChannel channel, std::shared_ptr<io_context> ioContext, int localPort)
 {
     switch (channel)
     {
-        case IMainBoard::NetChannel::UDP:
-            return std::make_shared<UdpASyncClient>(localPort);
-        case IMainBoard::NetChannel::TCP:
-            return std::make_shared<TcpASyncClient>(localPort);
+        case NetChannel::UDP:
+            return std::make_shared<UdpASyncClient>(ioContext, localPort);
+        case NetChannel::TCP:
+            return std::make_shared<TcpASyncClient>(ioContext, localPort);
         default:
             return nullptr;
     }

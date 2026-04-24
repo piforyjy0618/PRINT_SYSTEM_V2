@@ -10,6 +10,9 @@ msvc{
     QMAKE_CXXFLAGS +=/utf-8
 }
 
+# 是否在测试环境下
+DEFINES += TEST_ENV
+
 CONFIG(debug, debug|release) {
     TARGET = PrintSystemd
 } else {

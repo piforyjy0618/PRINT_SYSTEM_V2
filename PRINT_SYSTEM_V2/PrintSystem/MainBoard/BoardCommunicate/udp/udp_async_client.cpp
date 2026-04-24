@@ -1,15 +1,14 @@
 #include "udp_async_client.h"
 #include "spdlog/spdlog.h"
 
-UdpASyncClient::UdpASyncClient(const int localPort) : m_ioContext(new io_context),
+UdpASyncClient::UdpASyncClient(std::shared_ptr<io_context> ioContext,
+                               const int localPort) : m_ioContext(ioContext),
                                                       m_socket(new udp::socket(*m_ioContext, udp::endpoint(udp::v4(), localPort)))
 {
 }
 
 UdpASyncClient::~UdpASyncClient()
 {
-    // 确保对象销毁时，线程能安全退出
-    this->CloseConnect();
 }
 
 bool UdpASyncClient::OpenConnect(const std::string &host, const int port)
@@ -19,20 +18,10 @@ bool UdpASyncClient::OpenConnect(const std::string &host, const int port)
         udp::resolver resolver(*m_ioContext);
         auto endpoints = resolver.resolve(udp::v4(), host, std::to_string(port));
         m_serverEndpoint = std::unique_ptr<udp::endpoint>(new udp::endpoint(*endpoints.begin()));
-        // 防止 io_context.run() 在没有异步操作时立即返回
-        m_workGuard = std::make_unique<io_worker_guard>(m_ioContext->get_executor());
-        // 如果 io_context 之前停止过，重启它
-        if (m_ioContext->stopped())
-        {
-            m_ioContext->restart();
-        }
         // 初始化最后收到数据的时间
         m_lastReceiveTimeMs.store(GetCurrentTimeMs());
         this->StartReceive();
-        m_ioThread = std::thread([this]()
-                                 { 
-            m_ioContext->run(); 
-            spdlog::info("UDP IO Thread exited."); });
+
         return true;
     }
     catch (const std::exception &e)
@@ -44,25 +33,11 @@ bool UdpASyncClient::OpenConnect(const std::string &host, const int port)
 
 void UdpASyncClient::CloseConnect()
 {
-    // 1. 停止 socket
+    // 停止 socket
     if (m_socket && m_socket->is_open())
     {
         boost::system::error_code ec;
         m_socket->close(ec);
-    }
-    // 2. 释放 Work Guard（允许 run() 结束）
-    if (m_workGuard)
-    {
-        m_workGuard.reset();
-    }
-    // 3. 停止并回收
-    if (m_ioContext)
-    {
-        m_ioContext->stop();
-    }
-    if (m_ioThread.joinable())
-    {
-        m_ioThread.join();
     }
     spdlog::info("UDP Client Closed.");
 }
@@ -92,47 +67,89 @@ bool UdpASyncClient::Send(const std::string &message)
         return false;
     }
 
-    auto data = std::make_shared<std::string>(message);
+    auto self = shared_from_this();
+    auto data = std::make_shared<std::vector<uint8_t>>(message.begin(), message.end());
 
-    // --- 核心改动 2: 使用 post 投递任务 ---
-    // 确保 async_send_to 始终在 m_ioThread 中被调用，彻底避免 Socket 竞争
-    boost::asio::post(*m_ioContext, [this, data]()
-                      { m_socket->async_send_to(
-                            boost::asio::buffer(*data),
-                            *m_serverEndpoint,
-                            [data](const boost::system::error_code &ec, std::size_t /*bytesSent*/)
-                            {
-                                if (ec)
-                                {
-                                    spdlog::error("UDP send error: {}", ec.message());
-                                }
-                            }); });
+    boost::asio::post(*m_ioContext,
+                      [this, self, data]()
+                      {
+                          m_sendQueue.push(*data); // 将数据入队
 
+                          // 如果当前没有发送任务正在进行，则启动发送
+                          if (!m_isSending)
+                          {
+                              m_isSending = true; // 标记状态为正在发送
+                              DoAsyncWrite();     // 触发实际的异步发送
+                          }
+                      });
     return true;
+}
+
+void UdpASyncClient::DoAsyncWrite()
+{
+    auto self = shared_from_this();
+    m_isSending = true;
+    // 取出队首数据进行发送
+    m_socket->async_send_to(
+        boost::asio::buffer(m_sendQueue.front()),
+        *m_serverEndpoint,
+        [this, self](const boost::system::error_code &ec, std::size_t bytesSent)
+        {
+            // 发送完成后，触发回调处理
+            HandleSend(ec, bytesSent);
+        });
 }
 
 void UdpASyncClient::StartReceive()
 {
+    auto self = shared_from_this();
     m_socket->async_receive_from(boost::asio::buffer(m_recvBuffer),
-                                 *m_serverEndpoint,
-                                 std::bind(&UdpASyncClient::HandleReceive,
-                                           this,
-                                           boost::asio::placeholders::error,
-                                           boost::asio::placeholders::bytes_transferred));
+                                 m_senderEndpoint,
+                                 [this, self](const boost::system::error_code& error, std::size_t size)
+                                         {
+                                             this->HandleReceive(error, size);
+                                         });
 }
 
 void UdpASyncClient::HandleReceive(const boost::system::error_code &error, std::size_t size)
 {
     if (!error)
+        {
+            // 刷新时间戳
+            m_lastReceiveTimeMs.store(GetCurrentTimeMs());
+
+            std::string recvString(m_recvBuffer.data(), size);
+            DataReceived(recvString);
+
+            // 继续接收数据
+            this->StartReceive();
+        }
+        else
+        {
+            if (error != boost::asio::error::operation_aborted) {
+                spdlog::error("UDP Receive error: {}", error.message());
+            }
+        }
+}
+
+void UdpASyncClient::HandleSend(const boost::system::error_code &ec, std::size_t bytes_sent)
+{
+    (void)bytes_sent;
+    if (!ec)
     {
-        // 只要收到任何数据（包括心跳包），就刷新时间戳
-        m_lastReceiveTimeMs.store(GetCurrentTimeMs());
-        // 处理接收到的数据
-        std::string recvString(m_recvBuffer.data(), size);
-        // spdlog::info("UdpASyncClient receive: {}", recvString);
-        //  发送数据接收信号
-        DataReceived(recvString);
-        // 继续接收数据
-        this->StartReceive();
+        m_sendQueue.pop(); // 发送成功，移除队首
+        if (!m_sendQueue.empty())
+        {
+            DoAsyncWrite(); // 队列不为空，继续发送下一个
+        }
+        else
+        {
+            m_isSending = false; // 队列清空，标记为空闲
+        }
+    }
+    else
+    {
+        spdlog::error("Send error: {}", ec.message());
+        CloseConnect();
     }
 }

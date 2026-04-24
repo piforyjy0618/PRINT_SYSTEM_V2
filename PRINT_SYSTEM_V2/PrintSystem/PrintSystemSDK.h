@@ -75,13 +75,8 @@ public:
     virtual ~IMainBoard() = default;
 
     /**------连接------ */
-    enum class NetChannel
-    {
-        TCP,
-        UDP,
-    };
     // 打开主板连接
-    virtual bool OpenConnect(NetChannel channel, int port) = 0;
+    virtual bool OpenConnect(int port) = 0;
     // 断开主板连接
     virtual void CloseConnect() = 0;
     // 获取连接状态
@@ -101,6 +96,12 @@ public:
     virtual void SetMainBoardEventCallback(SystemEvent cb, void *pUserData = nullptr) = 0;
 };
 
+enum class NetChannel
+{
+    TCP,
+    UDP,
+};
+
 class IPrintSystem
 {
 public:
@@ -109,7 +110,7 @@ public:
     // 初始化系统，传入配置文件路径
     virtual bool Initialize(const char *configPath = nullptr) = 0;
     // 添加主板到系统
-    virtual IMainBoard *AddMainBoard(const char *ip) = 0;
+    virtual IMainBoard *AddMainBoard(NetChannel netChannel, const char *ip) = 0;
     // 移除主板
     virtual bool RemoveMainBoard(int index) = 0;
     // 获取主板数量

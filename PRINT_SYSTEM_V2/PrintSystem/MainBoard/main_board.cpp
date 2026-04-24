@@ -3,39 +3,48 @@
 #include "BoardCommunicate/board_communicate.h"
 #include "spdlog/spdlog.h"
 
-MainBoard::MainBoard(const char *ip) : m_ip(ip)
+MainBoard::MainBoard(NetChannel netChannel, const char *ip) : m_netChannel(netChannel),
+m_ip(ip)
 {
+    m_ioContext = std::make_shared<boost::asio::io_context>();
+    // 使用 work_guard 保证 io_context 在没有任务时也不会退出 run()
+    m_workGuard = std::make_unique<io_worker_guard>(m_ioContext->get_executor());
+
+    // 在主板初始化时就开启通信线程
+    m_commThread = std::thread([this]()
+                               {
+                                    spdlog::info("MainBoard I/O thread started.");
+                                    m_ioContext->run(); });
 }
 
 MainBoard::~MainBoard()
 {
+    if (m_boardCommunicate)
+    {
+        m_boardCommunicate->CloseConnect();
+        m_boardCommunicate = nullptr;
+    }
+    m_workGuard.reset();
+    if (m_commThread.joinable())
+    {
+        m_commThread.join();
+    }
 }
 
-bool MainBoard::OpenConnect(NetChannel channel, int port)
+bool MainBoard::OpenConnect(int port)
 {
-    std::string channelStr;
-    switch (channel)
-    {
-        case NetChannel::UDP:
-            channelStr = "UDP";
-            break;
-        case NetChannel::TCP:
-            channelStr = "TCP";
-            break;
-        default:
-            spdlog::warn("Unsupported channel type.");
-            return false;
-    }
-    spdlog::info("{0:s} Connect to {1:s}. IP: {2:s}, port: {3:d}", __FUNCTION__, channelStr, m_ip, port);
+    spdlog::info("{0:s} Connect to Board. IP: {2:s}, port: {3:d}", __FUNCTION__, m_ip, port);
     // 关闭之前的连接
     if (m_boardCommunicate)
     {
         m_boardCommunicate->CloseConnect();
         m_boardCommunicate = nullptr;
     }
-    // 创建并绑定接收函数
-    m_boardCommunicate = BoardCommunicate::Create(channel);
+    // 初始化客户端，传入主板的 io_context
+    m_boardCommunicate = BoardCommunicate::Create(m_netChannel, m_ioContext);
+    // 绑定接收函数
     m_boardCommunicate->DataReceived.connect(std::bind(&MainBoard::DataReceivedFromBoard, this, std::placeholders::_1));
+
     if(!m_boardCommunicate->OpenConnect(m_ip, port))
     {
         spdlog::warn("{0:s}: Failed to Open Connect.", __FUNCTION__);
@@ -59,14 +68,9 @@ bool MainBoard::IsConnected() const
     return m_boardCommunicate->IsConnected();
 }
 
-bool MainBoard::SendCommand()
+bool MainBoard::SendCommand(const std::string &cmd, const std::string &data)
 {
     return true;
-}
-
-bool MainBoard::SendData()
-{
-    return false;
 }
 
 void MainBoard::SetMainBoardEventCallback(SystemEvent cb, void *pUserData)
@@ -77,7 +81,7 @@ void MainBoard::SetMainBoardEventCallback(SystemEvent cb, void *pUserData)
 
 const char *MainBoard::GetIPAddress() const
 {
-    return nullptr;
+    return m_ip.c_str();
 }
 
 const char *MainBoard::GetMainBoardSerial() const
@@ -85,11 +89,10 @@ const char *MainBoard::GetMainBoardSerial() const
     return nullptr;
 }
 
-// --- 设备层级实现 ---
 int MainBoard::GetHeadboardCount() const
 {
     std::lock_guard<std::mutex> lock(m_mbMutex);
-    return m_headBoards.size();
+    return (int)m_headBoards.size();
 }
 
 IHeadboard *MainBoard::GetHeadboard(int index) const
@@ -114,9 +117,3 @@ void MainBoard::DataReceivedFromBoard(std::string recvData)
 {
 }
 
-// --- 内部通信实现 ---
-bool MainBoard::SendHardwareCommand(uint16_t cmdId, const uint8_t *payload, int length, NetChannel channel)
-{
-    std::lock_guard<std::mutex> lock(m_mbMutex);
-    return false;
-}

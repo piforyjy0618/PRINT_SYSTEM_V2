@@ -1,26 +1,22 @@
 #include "tcp_async_client.h"
 #include "spdlog/spdlog.h"
 
-TcpASyncClient::TcpASyncClient(const int localPort) : m_localPort(localPort),
-                                                      m_ioContext(new io_context),
-                                                      m_socket(new tcp::socket(*m_ioContext))
+TcpASyncClient::TcpASyncClient(std::shared_ptr<io_context> ioContext,
+                               const int localPort) : m_localPort(localPort),
+                                                      m_ioContext(ioContext),
+                                                      m_socket(std::make_unique<tcp::socket>(*m_ioContext))
 {
 }
 
 TcpASyncClient::~TcpASyncClient()
 {
-    this->CloseConnect();
 }
 
 bool TcpASyncClient::OpenConnect(const std::string &host, const int port)
 {
     try
     {
-        if (m_socket->is_open())
-        {
-            spdlog::warn("Socket already connected");
-            return true;
-        }
+        m_socket = std::make_unique<tcp::socket>(*m_ioContext);
         tcp::resolver resolver(*m_ioContext);
         auto results = resolver.resolve(host, std::to_string(port));
         if (m_localPort != 0)
@@ -30,18 +26,24 @@ bool TcpASyncClient::OpenConnect(const std::string &host, const int port)
             m_socket->open(tcp::v4());
             m_socket->bind(tcp::endpoint(tcp::v4(), m_localPort));
         }
-        boost::asio::connect(*m_socket, results);
-        spdlog::info("Async TCP connected: {}:{}", host, port);
-        // 连接成功时，初始化最后收到数据的时间
-        m_lastReceiveTimeMs.store(GetCurrentTimeMs());
-
-        m_workGuard = std::make_unique<io_worker_guard>(m_ioContext->get_executor());
-        // 启动异步接收
-        StartReceive();
-        // 启动 io_context 线程
-        m_ioThread = std::thread([this]()
-                                 { m_ioContext->run(); });
-
+        // 使用异步连接
+        auto self = shared_from_this();
+        boost::asio::async_connect(*m_socket, results,
+                                   [this, self, host, port](const boost::system::error_code &ec, const tcp::endpoint & /*endpoint*/)
+                                   {
+                                       if (!ec)
+                                       {
+                                           spdlog::info("Async TCP connected: {}:{}", host, port);
+                                           // 连接成功时，初始化最后收到数据的时间
+                                           m_lastReceiveTimeMs.store(GetCurrentTimeMs());
+                                           StartReceive();
+                                       }
+                                       else
+                                       {
+                                           spdlog::error("Async TCP connect failed: {}", ec.message());
+                                           CloseConnect();
+                                       }
+                                   });
         return true;
     }
     catch (const std::exception &e)
@@ -53,32 +55,17 @@ bool TcpASyncClient::OpenConnect(const std::string &host, const int port)
 
 void TcpASyncClient::CloseConnect()
 {
-    try
-    {
-        if (m_socket && m_socket->is_open())
-        {
-            boost::system::error_code ec;
-            m_socket->shutdown(tcp::socket::shutdown_both, ec);
-            m_socket->close(ec);
-        }
-        if (m_workGuard)
-        {
-            m_workGuard.reset();
-        }
-        if (m_ioContext)
-        {
-            m_ioContext->stop();
-        }
-        if (m_ioThread.joinable())
-        {
-            m_ioThread.join();
-        }
-        spdlog::info("Async TCP closed");
-    }
-    catch (...)
-    {
-        spdlog::error("CloseConnect exception");
-    }
+    auto self = shared_from_this();
+    boost::asio::post(*m_ioContext,
+                      [this, self]()
+                      {
+                          if (m_socket && m_socket->is_open())
+                          {
+                              boost::system::error_code ec;
+                              m_socket->shutdown(tcp::socket::shutdown_both, ec);
+                              m_socket->close(ec);
+                          }
+                      });
 }
 
 bool TcpASyncClient::IsConnected() const
@@ -107,28 +94,43 @@ bool TcpASyncClient::Send(const std::string &message)
         return false;
     }
 
-    auto data = std::make_shared<std::string>(message);
+    auto self = shared_from_this();
+    auto data = std::make_shared<std::vector<uint8_t>>(message.begin(), message.end());
 
-    // 使用 post 确保 async_send 在 IO 线程中调用
-    // 无论在 UI 线程还是定时器线程调用 Send，真正的 Socket 操作都会排队执行
-    boost::asio::post(*m_ioContext, [this, data]()
-                      { m_socket->async_send(
-                            boost::asio::buffer(*data),
-                            std::bind(&TcpASyncClient::HandleSend, this,
-                                      std::placeholders::_1,
-                                      std::placeholders::_2,
-                                      data)); });
-
+    boost::asio::post(*m_ioContext,
+                      [this, self, data]()
+                      {
+                          m_sendQueue.push(*data);
+                          if (!m_isSending)
+                          {
+                              DoAsyncWrite(); // 启动发送
+                          }
+                      });
     return true;
+}
+
+void TcpASyncClient::DoAsyncWrite()
+{
+    auto self = shared_from_this();
+    m_isSending = true;
+    // 取出队首数据进行发送
+    boost::asio::async_write(*m_socket,
+                             boost::asio::buffer(m_sendQueue.front()),
+                             [this, self](const boost::system::error_code &ec, size_t bytes)
+                             {
+                                 HandleSend(ec, bytes);
+                             });
 }
 
 void TcpASyncClient::StartReceive()
 {
+    auto self = shared_from_this();
     m_socket->async_receive(
         boost::asio::buffer(m_recvBuffer),
-        std::bind(&TcpASyncClient::HandleReceive, this,
-                  std::placeholders::_1,
-                  std::placeholders::_2));
+        [this, self](const boost::system::error_code &ec, std::size_t size)
+        {
+            HandleReceive(ec, size);
+        });
 }
 
 void TcpASyncClient::HandleReceive(const boost::system::error_code &error, std::size_t size)
@@ -139,7 +141,7 @@ void TcpASyncClient::HandleReceive(const boost::system::error_code &error, std::
         m_lastReceiveTimeMs.store(GetCurrentTimeMs());
 
         std::string data(m_recvBuffer.data(), size);
-        //spdlog::info("Async TCP received: {}", data);
+        // spdlog::info("Async TCP received: {}", data);
 
         // 发射信号（和Qt信号槽一样用法）
         DataReceived(data);
@@ -154,12 +156,24 @@ void TcpASyncClient::HandleReceive(const boost::system::error_code &error, std::
     }
 }
 
-void TcpASyncClient::HandleSend(const boost::system::error_code &ec, size_t bytes, std::shared_ptr<std::string> data)
+void TcpASyncClient::HandleSend(const boost::system::error_code &ec, size_t bytes)
 {
     (void)bytes;
-    (void)data;
-    if (ec)
+    if (!ec)
+    {
+        m_sendQueue.pop(); // 发送成功，移除队首
+        if (!m_sendQueue.empty())
+        {
+            DoAsyncWrite(); // 队列不为空，继续发送下一个
+        }
+        else
+        {
+            m_isSending = false; // 队列清空，标记为空闲
+        }
+    }
+    else
     {
         spdlog::error("Send error: {}", ec.message());
+        CloseConnect();
     }
 }
